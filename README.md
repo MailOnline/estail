@@ -6,8 +6,14 @@ Command line Elasticsearch query tool and tailer
 Installation
 ------------
 
-	npm install estail
-	
+	npm install git+https://bitbucket.org/MailOnline/estail
+
+or
+
+	npm install -g git+https://bitbucket.org/MailOnline/estail
+
+...you may need root access to install -globally.
+
 Usage
 -----
 
