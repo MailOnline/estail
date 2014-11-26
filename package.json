@@ -1,0 +1,24 @@
+{
+  "name": "estail",
+  "version": "1.0.0",
+  "description": "Command line Elasticsearch query tool and tailer",
+  "main": "estail",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://bitbucket.org/MailOnline/estail"
+  },
+  "keywords": [
+    "elasticsearch",
+    "command",
+    "line",
+    "tail"
+  ],
+  "author": "matthew.woolf@mailonline.co.uk",
+  "license": "ISC",
+  "dependencies": {
+    "jsep": "^0.2.9"
+  }
+}

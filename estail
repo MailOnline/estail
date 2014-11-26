@@ -1,0 +1,265 @@
+#!/usr/local/bin/node
+
+if (process.argv.length<3) {
+	console.error("Usage: escli [-qcot] [-h host] [-s sort] [-n num] [-f fields] expr"
+		+"\n\t-q\t\t\t\tShow the query JSON as sent to the server"
+		+"\n\t-c\t\t\t\tCompact (un-pretty) JSON response"
+		+"\n\t-o\t\t\t\tOnly output the document data, not the full response"
+		+"\n\t-t\t\t\t\t\"tail\" mode - follow the output"
+		+"\n\t-h elasticsearchserverURL\tDefault:http://localhost:9200/_search"
+		+"\n\t-s field,field,...\t\tSpecify sort order fields (if any). Preceeding a fieldname with '-' specifies descending sort"
+		+"\n\t-f field,field,...\t\tSpecify response fields. ES default is entire document in _source"
+		+"\n\t-n num\t\t\t\tLimit response to 'num' results. Default 10"
+		+"\n\texpr\t\t\t\tJS-style expression for filter, e.g my.prop==\"Hello\" && !(timestamp>10000000)"
+	);
+	return ;
+}
+
+var http = require('http') ;
+var URL = require('url') ;
+var jsep = require('jsep') ;
+
+/* Augment jsep */
+/** 
+ * Allow for the JS construct x in y (typically found in loops)
+ */
+jsep.addBinaryOp("in",10) ;	
+
+/**
+ * @method jsep.esQuery
+ * @param m	- either a {string}, which should be parsed into a JS expression, or a JS 
+ * 			expression that should be transformed into an Elasticsearch query/filter specification
+ * @returns An object representing the ES query or filter, ready for serialisation and submission to ES
+ * 
+ * Syntax: The supported syntax is a subset of JS expression syntax as applied to ES. Currently
+ * transformations are:
+ * 	Binary operators && || > < >= <= translate to simple boolean and range filters
+ *  Binary operator == translates to a match_phrase, essentially becuase there seems to be no simple, guaranteed string equality ES operator
+ *  Unary ! translates to a simple {not:...}
+ *  Unary ~ translates to a nested query filter, so that ~match(field,'value') works as a nested match query
+ *  Binary "in" is currently BROKEN but is reserved for collection tests (e.g. "abc" in myArrayField)
+ *  Function calls map to similarky named sub filters & queries, so that 
+ *  	abc(def,'ghi') maps to {abc:{def:'ghi'}}   and
+ *  	abc(def) maps to {abc:def}
+ *  
+ */
+jsep.esQuery = function(m) {
+	if (typeof m=='string') {
+		return jsep.esQuery(jsep(m)) ;
+	}
+	
+	function ident(n) {
+		if (n.type=='MemberExpression') {
+			if (n.property.type=='Literal')
+				return ident(n.object)+"."+n.property.value ;
+			return ident(n.object)+"."+ident(n.property) ;
+		}
+		if (n.type=='Identifier')
+			return n.name ;
+		throw new Error("Not an identifier:"+JSON.stringify(n)) ;
+	}
+	
+	function literal(n) {
+		if (n.type=='ArrayExpression')
+			return n.elements.map(literal);
+		if (n.type!='Literal')
+			throw new Error("Not a literal:"+JSON.stringify(n)) ;
+		return n.value;
+	}
+	
+	function array(n) {
+		if (n.type!='ArrayExpression')
+			throw new Error("Not an array:"+JSON.stringify(n)) ;
+		return n.elements;
+	}
+	
+	switch (m.type) {
+	case 'CallExpression':
+		var o = [{},{}] ;
+		switch (m.arguments.length) {
+		case 1:
+			o[1][ident(m.callee)] = ident(m.arguments[0]) ;
+			return o[1] ;
+		case 2:
+			o[0][ident(m.arguments[0])] = literal(m.arguments[1]) ;
+			o[1][ident(m.callee)] = o[0] ;
+			return o[1] ;
+		}
+		throw new Error("Calls must have 1 or 2 parameters:"+JSON.stringify(m)) ;
+		
+		
+	case 'LogicalExpression':
+		switch (m.operator) {
+		case '&&':
+			return {and:[jsep.esQuery(m.left),jsep.esQuery(m.right)]} ;
+		case '||':
+			return {or:[jsep.esQuery(m.left),jsep.esQuery(m.right)]} ;
+		}
+		throw new Error("Not an operator:"+JSON.stringify(m)) ;
+	case 'UnaryExpression':
+		switch (m.operator) {
+		case '~': // Query filter
+			return {query:jsep.esQuery(m.argument)} ;
+		case '!':
+			return {not:jsep.esQuery(m.argument)} ;
+		}
+		throw new Error("Not an operator:"+JSON.stringify(m)) ;
+	case 'BinaryExpression':
+		switch (m.operator) {
+		case '>':
+			var o = {} ;
+			o[ident(m.left)] = {gt:literal(m.right)} ;
+			return {range:o} ;
+		case '<':
+			var o = {} ;
+			o[ident(m.left)] = {lt:literal(m.right)} ;
+			return {range:o} ;
+		case '>=':
+			var o = {} ;
+			o[ident(m.left)] = {gte:literal(m.right)} ;
+			return {range:o} ;
+		case '<=':
+			var o = {} ;
+			o[ident(m.left)] = {lte:literal(m.right)} ;
+			return {range:o} ;
+		case '==':
+			var o = {} ;
+			o[ident(m.left)] = literal(m.right) ;
+			return {query:{match_phrase:o}} ;
+		case '!=':
+			var o = {} ;
+			o[ident(m.left)] = literal(m.right) ;
+			return {not:{query:{match_phrase:o}}} ;
+		case 'in':
+			var o = {} ;
+			o[ident(m.left)] = array(m.right).map(literal) ;
+			return {terms:o} ;
+		}
+		throw new Error("Not an operator:"+JSON.stringify(m)) ;
+	}
+}
+
+var options = URL.parse("http://localhost:9200/_search") ;
+var args = process.argv.slice(2) ;
+var query = {
+	size:10,
+	sort:[],
+	query:{
+		filtered:{}
+	}
+} ;
+
+var showQuery = false ;
+var pretty = true ;
+var tailMode = null ;
+var onlyFields = false ;
+while (args.length) {
+	var a = args.shift() ;
+	switch (a.substring(0,2)) {
+	// Options with no parameter
+	case '-q': // Show the query
+	case '-c': // Compact output
+	case '-o':
+	case '-t': // "tail" mode
+		for (var ai=1;ai<a.length;ai++) switch (a[ai]) {
+		case 'q': // Show the query
+			showQuery = true ;
+			break ;
+		case 'c': // Compact output
+			pretty = false ;
+			break ;
+		case 'o':
+			onlyFields = true ;
+			break ;
+		case 't': // "tail" mode
+			query.sort = [{"@timestamp":{order:"desc"}}].concat(query.sort) ;
+			tailMode = {range:{"@timestamp":{gt:0}}} ;
+			break ;
+		}
+		break ;
+		
+	// Options taking a paramter	
+	case '-h': // set the host
+		options = URL.parse(args.shift()) ;
+		break ;
+	case '-s': // sort
+		query.sort = query.sort.concat(args.shift().split(/[, ]+/).map(function(t){ 
+			var o = {}; 
+			t.charAt(0)!='-'?
+					(o[t] = {order:"asc"}):
+					(o[t.substring(1)] = {order:"desc"});
+			return o; })) ;
+		break ;
+	case '-n':
+		query.size = args.shift() ;
+		break ;
+	case '-f':
+		query.fields = args.shift().split(/[, ]+/) ;
+		break ;
+	default:
+		query.query.filtered.filter = jsep.esQuery(a) ;
+	}
+}
+
+if (tailMode) {
+	if (query.query.filtered.filter) {
+		query.query.filtered.filter = {and:[tailMode,query.query.filtered.filter]} ;
+	} else {
+		query.query.filtered.filter = tailMode ;
+	}
+}
+
+options.method = "POST" ;
+
+function esQuery() {
+	var req = http.request(options, function(res) {
+		res.setEncoding('utf8');
+		var body = "" ;
+		res.on('data', function (chunk) {
+			body += chunk ;
+		});
+		res.on('end',function(){
+			var result = JSON.parse(body) ;
+			if (res.statusCode!=200 || result.error) {
+				console.error("HTTP status: "+res.statusCode);
+				console.error(result.error);
+				process.exit(-1) ;
+			}
+			
+			try {
+				var last = result.hits.hits[0].sort[0] ;
+			} catch(ex){};
+			
+			if (tailMode)
+				result.hits.hits.reverse() ;
+
+			if (onlyFields) {
+				var mapFn = query.fields ? function(h){ return h.fields }: function(h) { return h._source } ;
+				var m = result.hits.hits.map(mapFn) ;
+				for (var i=0; i<m.length; i++) {
+					console.log(JSON.stringify(m[i],null,pretty?2:undefined));
+				}
+//				console.log(m.length) ;
+//				console.log(JSON.stringify(query,null,pretty?2:undefined));
+
+			} else {
+				console.log(JSON.stringify(result,null,pretty?2:undefined));
+			}
+
+			if (tailMode) {
+				query.size = 1000 ;
+				if (last)
+					tailMode.range["@timestamp"].gt = last;
+				setTimeout(esQuery,100+Math.random()*900) ;
+			}
+		});
+	});
+	req.on('error', function(e) {
+		console.error('problem with request: ' + e.message);
+	});
+	req.end(JSON.stringify(query,null,2));
+}
+
+if (showQuery)
+	console.log(JSON.stringify(query,null,2)) ;
+esQuery() ;
