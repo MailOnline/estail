@@ -1,7 +1,7 @@
 #!/usr/local/bin/node
 
 if (process.argv.length<3) {
-	console.error("Usage: escli [-qcot] [-h host] [-s sort] [-n num] [-f fields] expr"
+	console.error("Usage: estail [-qcot] [-h host] [-s sort] [-n num] [-f fields] expr"
 		+"\n\t-q\t\t\t\tShow the query JSON as sent to the server"
 		+"\n\t-c\t\t\t\tCompact (un-pretty) JSON response"
 		+"\n\t-o\t\t\t\tOnly output the document data, not the full response"
@@ -150,7 +150,7 @@ var query = {
 } ;
 
 var showQuery = false ;
-var pretty = true ;
+var pretty = 2 ;
 var tailMode = null ;
 var onlyFields = false ;
 while (args.length) {
@@ -166,7 +166,7 @@ while (args.length) {
 			showQuery = true ;
 			break ;
 		case 'c': // Compact output
-			pretty = false ;
+			pretty = undefined ;
 			break ;
 		case 'o':
 			onlyFields = true ;
@@ -237,13 +237,13 @@ function esQuery() {
 				var mapFn = query.fields ? function(h){ return h.fields }: function(h) { return h._source } ;
 				var m = result.hits.hits.map(mapFn) ;
 				for (var i=0; i<m.length; i++) {
-					console.log(JSON.stringify(m[i],null,pretty?2:undefined));
+					console.log(JSON.stringify(m[i],null,pretty));
 				}
 //				console.log(m.length) ;
-//				console.log(JSON.stringify(query,null,pretty?2:undefined));
+//				console.log(JSON.stringify(query,null,pretty));
 
 			} else {
-				console.log(JSON.stringify(result,null,pretty?2:undefined));
+				console.log(JSON.stringify(result,null,pretty));
 			}
 
 			if (tailMode) {
@@ -257,9 +257,9 @@ function esQuery() {
 	req.on('error', function(e) {
 		console.error('problem with request: ' + e.message);
 	});
-	req.end(JSON.stringify(query,null,2));
+	req.end(JSON.stringify(query));
 }
 
 if (showQuery)
-	console.log(JSON.stringify(query,null,2)) ;
+	console.log(JSON.stringify(query,null,pretty)) ;
 esQuery() ;
