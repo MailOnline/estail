@@ -19,6 +19,6 @@
   "author": "matthew.woolf@mailonline.co.uk",
   "license": "ISC",
   "dependencies": {
-    "jsep": "^0.2.9"
+    "jsep": "git+https://github.com/soney/jsep.git"
   }
 }

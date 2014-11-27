@@ -56,6 +56,8 @@ jsep.esQuery = function(m) {
 		}
 		if (n.type=='Identifier')
 			return n.name ;
+		if (n.type!='Literal')
+			return n.value ;
 		throw new Error("Not an identifier:"+JSON.stringify(n)) ;
 	}
 	
@@ -72,7 +74,7 @@ jsep.esQuery = function(m) {
 			throw new Error("Not an array:"+JSON.stringify(n)) ;
 		return n.elements;
 	}
-	
+		
 	switch (m.type) {
 	case 'CallExpression':
 		var o = [{},{}] ;
