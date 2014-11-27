@@ -37,7 +37,7 @@ jsep.addBinaryOp("in",10) ;
  *  Binary operator == translates to a match_phrase, essentially becuase there seems to be no simple, guaranteed string equality ES operator
  *  Unary ! translates to a simple {not:...}
  *  Unary ~ translates to a nested query filter, so that ~match(field,'value') works as a nested match query
- *  Binary "in" is currently BROKEN but is reserved for collection tests (e.g. "abc" in myArrayField)
+ *  Binary "in" is translates to a terms() filter, so that '["abc","def"] in myfield' is true if any of the array elements are terms in myfield
  *  Function calls map to similarky named sub filters & queries, so that 
  *  	abc(def,'ghi') maps to {abc:{def:'ghi'}}   and
  *  	abc(def) maps to {abc:def}
@@ -134,7 +134,7 @@ jsep.esQuery = function(m) {
 			return {not:{query:{match_phrase:o}}} ;
 		case 'in':
 			var o = {} ;
-			o[ident(m.left)] = array(m.right).map(literal) ;
+			o[ident(m.right)] = array(m.left).map(literal) ;
 			return {terms:o} ;
 		}
 		throw new Error("Not an operator:"+JSON.stringify(m)) ;

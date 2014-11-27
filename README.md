@@ -49,7 +49,7 @@ The supported syntax is a subset of JS expression syntax as applied to Elasticse
  -  Binary operators == and != translate to a match_phrase (and 'not' if necessary), essentially because there seems to be no simple, guaranteed string equality ES operator if the analyser is unknown.
  -  Unary ! translates to a simple {not:...}
  -  Unary ~ translates to a nested query filter, so that ~match(field,'value') works as a nested match query
- -  Binary "in" is currently BROKEN but is reserved for collection tests (e.g. "abc" in myArrayField)
+ -  Binary "in" is translates to a terms() filter, so that '["abc","def"] in myfield' is true if any of the array elements are terms in myfield
  -  Function calls map to similarly named sub filters & queries, so that 
 	
 	abc(def,'ghi') // maps to {abc:{def:'ghi'}}   	
