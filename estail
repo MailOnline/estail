@@ -236,7 +236,11 @@ function esQuery() {
 				result.hits.hits.reverse() ;
 
 			if (onlyFields) {
-				var mapFn = query.fields ? function(h){ return h.fields }: function(h) { return h._source } ;
+				var mapFn = query.fields ? function(h){
+					var o = {} ;
+					query.fields.forEach(function(k){ o[k] = h.fields[k] ;}) ;
+					return o; 
+				}: function(h) { return h._source } ;
 				var m = result.hits.hits.map(mapFn) ;
 				for (var i=0; i<m.length; i++) {
 					console.log(JSON.stringify(m[i],null,pretty));
