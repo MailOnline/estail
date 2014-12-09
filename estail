@@ -181,6 +181,10 @@ while (args.length) {
 		break ;
 		
 	// Options taking a paramter	
+	case '-a': // Aggregation
+		query.aggs = JSON.parse("{"+args.shift()+"}") ;
+		break ;
+		
 	case '-h': // set the host
 		options = URL.parse(args.shift()) ;
 		break ;
