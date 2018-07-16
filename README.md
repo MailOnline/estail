@@ -1,6 +1,8 @@
 estail
 ======
 
+[![Greenkeeper badge](https://badges.greenkeeper.io/MailOnline/estail.svg)](https://greenkeeper.io/)
+
 Command line Elasticsearch query tool and tailer
 
 Installation
